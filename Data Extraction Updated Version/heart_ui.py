@@ -97,66 +97,68 @@ if "prediction_explanation" not in st.session_state:
 if "chat_closed" not in st.session_state:
     st.session_state.chat_closed = False
 
-llm = ChatOllama(model="gemma2:latest", temperature=0.1)
+llm = ChatOllama(model="mistral:latest", temperature=0.1)
 
-class HealthDataExtractionAgent:
-    """Enhanced agent for extracting health data with confidence scoring"""
+class HeartDiseaseDataExtractionAgent:
+    """Enhanced agent for extracting heart disease risk data with confidence scoring"""
     
     def __init__(self, llm):
         self.llm = llm
         self.required_features = required_features
         self.feature_descriptions = feature_descriptions
-
+    
     def parse_user_response_manually(self, user_response):
         """
-        Enhanced manual extraction for health features in cardiovascular risk assessment.
-        Much more comprehensive pattern matching for natural language input.
+        Manual parsing for common patterns before using LLM
+        This provides a fallback and improves reliability
         """
         response_lower = user_response.lower().strip()
         extracted_data = {}
-
-        # Gender
-        gender_male_patterns = [
-            'male', 'man', 'guy', 'boy', 'gentleman', 'he/him', 'i am a man', 
-            'i\'m a man', 'i am male', 'i\'m male', 'gender: male', 'sex: male'
+        
+        # Gender detection (1=female, 2=male for heart disease)
+        gender_male = [
+            'male', 'man', 'guy', 'boy', 'gentleman', 'he/him', 'he him',
+            "i am a man", "i'm a man", "identify as male", "identify as a man",
+            "he is male", "he is a man", "my gender is male"
         ]
-        gender_female_patterns = [
-            'female', 'woman', 'lady', 'girl', 'she/her', 'i am a woman',
-            'i\'m a woman', 'i am female', 'i\'m female', 'gender: female', 'sex: female'
+
+        gender_female = [
+            'female', 'woman', 'girl', 'lady', 'she/her', 'she her',
+            "i am a woman", "i'm a woman", "identify as female", "identify as a woman",
+            "she is female", "she is a woman", "my gender is female"
         ]
         
-        if any(pattern in response_lower for pattern in gender_male_patterns):
+        if any(word in response_lower for word in gender_male):
             extracted_data['gender'] = {'value': 2, 'confidence': 9}
-        elif any(pattern in response_lower for pattern in gender_female_patterns):
+        if any(word in response_lower for word in gender_female):
             extracted_data['gender'] = {'value': 1, 'confidence': 9}
-
-        # Age
+        
+        # Age detection 
         age_patterns = [
-            r"i'?m\s+(\d+)(?:\s+(?:now|years?\s+old))?",  # I'm 45, I'm 45 now, I'm 45 years old
-            r"(\d+)\s+years?\s+old",                      # 45 years old
-            r"age\s*:?\s*(\d+)",                          # age: 45, age 45
-            r"(\d+)\s*yo",                                # 45yo
-            r"in\s+my\s+(\d+)'?s",                        # in my 40s
-            r"●\s*age\s*:?\s*(\d+)",                      # ● Age: 45
-            r"age\s+is\s+(\d+)",                          # age is 45
-            r"i\s+am\s+(\d+)",                            # I am 45
-            r"turning\s+(\d+)",                           # turning 45
-            r"just\s+turned\s+(\d+)",                     # just turned 45
-            r"(\d+)\s+year\s+old",                        # 45 year old
-            r"my\s+age\s+is\s+(\d+)",                     # my age is 45
-            r"(\d+)\s*years?\s*of\s*age",                 # 45 years of age
+            r"\b(?:i'?m|i\s+am|im)\s+(\d{1,3})(?:\s+now)?\b",           # I'm 65, I am 65, im 65
+            r"\b(\d{1,3})\s+(?:years?|yrs?)\s+old\b",                   # 65 years old, 65 yrs old
+            r"\bage\s*[:\-]?\s*(\d{1,3})\b",                            # age: 65, age - 65
+            r"\b(\d{1,3})\s*yo\b",                                      # 65yo
+            r"\bin\s+my\s+(\d{2})'?s\b",                                # in my 60s, in my 20's
+            r"●\s*age\s*[:\-]?\s*(\d{1,3})",                            # ● Age: 65
+            r"\bturn(?:ing|s)?\s+(\d{1,3})\b",                          # turning 65, turns 65
+            r"\bjust\s+turned\s+(\d{1,3})\b",                           # just turned 65
+            r"\b(\d{1,3})\s+year\s+old\b",                              # 65 year old
+            r"\bat\s+age\s+(\d{1,3})\b",                                # at age 65
+            r"\b(\d{1,3})\b\s*(?:yo\b|y/o\b|yrs?\b)",                   # 65 yo, 65 y/o, 65 yrs
+            r"\breached\s+age\s+of\s+(\d{1,3})\b",                      # reached age of 65
+            r"\b(\d{1,3})\s+anniversar(?:y|ies)\s+of\s+birth\b",        # 65 anniversary of birth
+            r"\b(\d{1,3})[-\s]?year[-\s]?old\b",
         ]
         
         for pattern in age_patterns:
             matches = re.finditer(pattern, response_lower)
             for match in matches:
                 age = int(match.group(1))
-                if 10 <= age <= 120:
+                if 10 <= age <= 120:  # Reasonable age range
                     extracted_data['age'] = {'value': age, 'confidence': 9}
-                    break
-            if 'age' in extracted_data:
-                break
-
+                    break  # Take first valid match
+        
         # Height 
         height_patterns = [
             r'(\d+)\s*(cm|centimeters?)',                     # 170 cm
@@ -232,6 +234,7 @@ class HealthDataExtractionAgent:
             r'systolic\s+(\d{2,3}).*diastolic\s+(\d{2,3})',       # systolic 120 diastolic 80
             r'(\d{2,3})\s+systolic.*(\d{2,3})\s+diastolic',       # 120 systolic 80 diastolic
             r'top\s+number\s+(\d{2,3}).*bottom\s+number\s+(\d{2,3})', # top number 120 bottom number 80
+            r"my\s+blood\s+pressure\s+is\s+(\d{2,3})\s+over\s+(\d{2,3})",
         ]
         
         for pattern in bp_patterns:
@@ -244,282 +247,162 @@ class HealthDataExtractionAgent:
                     extracted_data['ap_lo'] = {'value': diastolic, 'confidence': 9}
                     break
 
-        # Smoking 
-        smoking_negative_patterns = [
-            r"\b(don'?t|do\s+not|never|non[-\s]?smoker)\s*(smoke|smoking)\b",
-            r"\b(i\s+don'?t\s+smoke|never\s+smoked|quit\s+smoking|stopped\s+smoking)\b",
-            r"●.*don'?t.*smoke",
-            r"●.*never.*smoke",
-            r"●.*quit.*smok",
-            r"\b(ex[-\s]?smoker|former\s+smoker)\b",
-            r"used\s+to\s+smoke.*but.*quit",
-            r"gave\s+up\s+smoking",
-            r"no\s+smoking",
-            r"smoke[-\s]free",
-            r"don'?t\s+use\s+tobacco",
-            r"tobacco[-\s]free",
+        # Cholesterol detection
+        cholesterol_normal = [
+            "normal cholesterol", "cholesterol is normal", "cholesterol normal",
+            "good cholesterol", "cholesterol is good", "cholesterol levels are normal",
+            "healthy cholesterol", "no cholesterol issues", "cholesterol is fine"
         ]
-        
-        smoking_positive_patterns = [
-            r"\b(smoke|smoking|smoker|i\s+smoke)\b",
-            r"●.*smoke",
-            r"●.*smoking",
-            r"cigarette",
-            r"tobacco\s+use",
-            r"i\s+am\s+a\s+smoker",
-            r"smoke\s+cigarettes",
-            r"smoke\s+regularly",
-            r"pack\s+a\s+day",
-            r"packs?\s+per\s+day",
-        ]
-        
-        if any(re.search(pattern, response_lower) for pattern in smoking_negative_patterns):
-            extracted_data['smoke'] = {'value': 0, 'confidence': 9}
-        elif any(re.search(pattern, response_lower) for pattern in smoking_positive_patterns):
-            # Check if it's past tense
-            if any(past in response_lower for past in ['used to', 'when i was', 'back then', 'years ago']):
-                extracted_data['smoke'] = {'value': 0, 'confidence': 8}
-            else:
-                extracted_data['smoke'] = {'value': 1, 'confidence': 8}
 
-        # Alcohol 
-        alcohol_negative_patterns = [
-            r"\b(don'?t|do\s+not|no)\s+(drink|consume).*alcohol",
-            r"\b(non[-\s]?drinker|no\s+alcohol|teetotal|sober)\b",
-            r"●.*don'?t.*drink",
-            r"●.*no.*alcohol",
-            r"●.*non[-\s]?drinker",
-            r"never\s+drink\s+alcohol",
-            r"avoid\s+alcohol",
-            r"alcohol[-\s]free",
-            r"don'?t\s+consume\s+alcohol",
-            r"no\s+alcoholic\s+beverages",
+        cholesterol_above = [
+            "high cholesterol", "elevated cholesterol", "cholesterol is high",
+            "above normal cholesterol", "cholesterol above normal", "slightly high cholesterol",
+            "borderline cholesterol", "cholesterol is elevated"
         ]
-        
-        alcohol_positive_patterns = [
-            r"\b(drink|alcohol|consume.*alcohol|i\s+drink)\b",
-            r"●.*drink.*alcohol",
-            r"●.*alcohol.*consume",
-            r"●.*drink.*wine|beer|spirits",
-            r"social\s+drinking",
-            r"drink\s+occasionally",
-            r"wine\s+with\s+dinner",
-            r"beer\s+on\s+weekends",
-            r"alcoholic\s+beverages",
-            r"consume\s+alcohol",
-            r"drink\s+regularly",
-            r"moderate\s+drinking",
-        ]
-        
-        if any(re.search(pattern, response_lower) for pattern in alcohol_negative_patterns):
-            extracted_data['alco'] = {'value': 0, 'confidence': 9}
-        elif any(re.search(pattern, response_lower) for pattern in alcohol_positive_patterns):
-            extracted_data['alco'] = {'value': 1, 'confidence': 8}
 
-        # Physical Activity 
-        inactive_patterns = [
-            r"not\s+very\s+(physically\s+)?active",
-            r"(physically\s+)?inactive|sedentary",
-            r"●.*not.*active",
-            r"●.*inactive",
-            r"●.*sedentary",
-            r"don'?t\s+exercise",
-            r"no\s+exercise",
-            r"couch\s+potato",
-            r"desk\s+job.*no\s+exercise",
-            r"mostly\s+sedentary",
-            r"very\s+little\s+activity",
-            r"barely\s+active",
-            r"hardly\s+exercise",
-            r"rarely\s+exercise",
-            r"sit\s+all\s+day",
+        cholesterol_well_above = [
+            "very high cholesterol", "extremely high cholesterol", "cholesterol is very high",
+            "well above normal cholesterol", "dangerously high cholesterol",
+            "severely elevated cholesterol", "cholesterol way above normal"
         ]
         
-        active_patterns = [
-            r"physically\s+active",
-            r"exercise",
-            r"workout",
-            r"●.*active",
-            r"●.*exercise",
-            r"●.*workout",
-            r"i\s+exercise",
-            r"regular\s+exercise",
-            r"gym",
-            r"running",
-            r"jogging",
-            r"swimming",
-            r"cycling",
-            r"walk\s+regularly",
-            r"sports",
-            r"fitness",
-            r"train\s+regularly",
-            r"work\s+out",
-            r"cardio",
-            r"strength\s+training",
-            r"yoga",
-            r"pilates",
-        ]
+        if any(phrase in response_lower for phrase in cholesterol_well_above):
+            extracted_data['cholesterol'] = {'value': 3, 'confidence': 8}
+        if any(phrase in response_lower for phrase in cholesterol_above):
+            extracted_data['cholesterol'] = {'value': 2, 'confidence': 8}
+        if any(phrase in response_lower for phrase in cholesterol_normal):
+            extracted_data['cholesterol'] = {'value': 1, 'confidence': 8}
         
-        if any(re.search(pattern, response_lower) for pattern in inactive_patterns):
-            extracted_data['active'] = {'value': 0, 'confidence': 9}
-        elif any(re.search(pattern, response_lower) for pattern in active_patterns):
-            extracted_data['active'] = {'value': 1, 'confidence': 8}
+        # Glucose/Blood sugar detection
+        glucose_normal = [
+            "normal glucose", "glucose is normal", "normal blood sugar", "blood sugar is normal",
+            "glucose normal", "good glucose", "healthy glucose", "no diabetes",
+            "glucose levels are normal", "blood sugar levels are normal"
+        ]
 
-        # Cholesterol 
-        cholesterol_patterns = [
-            # Very high (3)
-            (r"cholesterol.*(well\s+above\s+normal|very\s+high|extremely\s+high|dangerously\s+high)", 3),
-            (r"●.*cholesterol.*(very\s+high|extremely\s+high|well\s+above)", 3),
-            (r"cholesterol.*(over\s+240|above\s+250)", 3),
-            (r"high\s+cholesterol.*medication", 3),
-            
-            # Above normal (2)
-            (r"cholesterol.*(above\s+normal|slightly\s+high|high|elevated)", 2),
-            (r"●.*cholesterol.*(high|elevated|above)", 2),
-            (r"cholesterol.*(200|210|220|230)", 2),  # Common high values
-            (r"borderline\s+high\s+cholesterol", 2),
-            
-            # Normal (1)
-            (r"cholesterol.*(normal|within\s+(the\s+)?normal|good|healthy)", 1),
-            (r"●.*cholesterol.*(normal|good|healthy)", 1),
-            (r"cholesterol.*(under\s+200|below\s+200)", 1),
-            (r"normal\s+cholesterol\s+levels", 1),
-            (r"cholesterol\s+is\s+fine", 1),
+        glucose_above = [
+            "high glucose", "elevated glucose", "high blood sugar", "elevated blood sugar",
+            "glucose is high", "blood sugar is high", "above normal glucose",
+            "prediabetic", "borderline diabetes", "slightly high glucose"
+        ]
+
+        glucose_well_above = [
+            "very high glucose", "extremely high glucose", "very high blood sugar",
+            "diabetic", "diabetes", "well above normal glucose", "severely elevated glucose",
+            "glucose way above normal", "uncontrolled diabetes"
         ]
         
-        for pattern, value in cholesterol_patterns:
-            if re.search(pattern, response_lower):
-                extracted_data['cholesterol'] = {'value': value, 'confidence': 8}
+        if any(phrase in response_lower for phrase in glucose_well_above):
+            extracted_data['gluc'] = {'value': 3, 'confidence': 8}
+        if any(phrase in response_lower for phrase in glucose_above):
+            extracted_data['gluc'] = {'value': 2, 'confidence': 8}
+        if any(phrase in response_lower for phrase in glucose_normal):
+            extracted_data['gluc'] = {'value': 1, 'confidence': 8}
+        
+        # Smoking detection 
+        smoking_negative = [
+            "don't smoke", "do not smoke", "never smoked", "non-smoker", "non smoker",
+            "quit smoking", "stopped smoking", "gave up smoking", "used to smoke",
+            "smoked in the past", "i have never smoked", "i am not a smoker",
+            "not a smoker", "never been a smoker"
+        ]
+
+        smoking_positive = [
+            "i smoke", "i'm a smoker", "i am a smoker", "smoker", "smoking",
+            "smoke regularly", "smoke a lot", "smoke cigarettes", "smoke tobacco",
+            "cigarette", "tobacco", "nicotine", "can't quit smoking", "cannot quit smoking",
+            "chain smoker", "i have been smoking", "pack a day"
+        ]
+        
+        # Check negative first (more specific)
+        smoking_found = False
+        for phrase in smoking_negative:
+            if phrase in response_lower:
+                if any(past in response_lower for past in ["used to", "when i was", "back then", "in the past"]):
+                    extracted_data['smoke'] = {'value': 0, 'confidence': 8} 
+                else:
+                    extracted_data['smoke'] = {'value': 0, 'confidence': 9}
+                smoking_found = True
                 break
+        
+        if not smoking_found:
+            for phrase in smoking_positive:
+                if phrase in response_lower:
+                    extracted_data['smoke'] = {'value': 1, 'confidence': 8}
+                    break
+        
+        # Alcohol detection
+        alcohol_positive = [
+            "i drink alcohol", "i drink beer", "i drink wine", "drink alcohol",
+            "drinking alcohol", "i have a drink", "social drinking", "wine with dinner",
+            "enjoy wine", "enjoy beer", "regularly drink", "often drink", "i drink",
+            "consume alcohol", "alcohol consumption"
+        ]
 
-        # Glucose 
-        glucose_patterns = [
-            # Very high (3)
-            (r"(glucose|blood\s+sugar|diabetes).*(well\s+above\s+normal|very\s+high|extremely\s+high)", 3),
-            (r"●.*(glucose|blood\s+sugar).*(very\s+high|extremely\s+high)", 3),
-            (r"(glucose|blood\s+sugar).*(over\s+140|above\s+150)", 3),
-            (r"diabetic.*medication", 3),
-            (r"type\s+2\s+diabetes", 3),
-            (r"pre[-\s]?diabetic", 3),
-            
-            # Above normal (2)
-            (r"(glucose|blood\s+sugar).*(above\s+normal|slightly\s+high|high|elevated)", 2),
-            (r"●.*(glucose|blood\s+sugar).*(high|elevated|above)", 2),
-            (r"(glucose|blood\s+sugar).*(110|120|130)", 2),  # Common elevated values
-            (r"borderline\s+diabetes", 2),
-            
-            # Normal (1)
-            (r"(glucose|blood\s+sugar).*(normal|within\s+(the\s+)?normal|good|healthy)", 1),
-            (r"●.*(glucose|blood\s+sugar).*(normal|good|healthy)", 1),
-            (r"(glucose|blood\s+sugar).*(under\s+100|below\s+100)", 1),
-            (r"normal\s+(glucose|blood\s+sugar)\s+levels", 1),
-            (r"(glucose|blood\s+sugar)\s+is\s+fine", 1),
-            (r"no\s+diabetes", 1),
+        alcohol_negative = [
+            "don't drink", "do not drink", "never drink", "no alcohol", "i'm sober",
+            "avoid alcohol", "abstain from alcohol", "no alcohol use", "teetotal",
+            "don't consume alcohol", "alcohol free","i don't drink alcohol", "i do not drink alcohol", "i never drink alcohol",
+    "never drink alcohol", "don’t drink alcohol", "i don’t consume alcohol", "i do not consume alcohol",
         ]
         
-        for pattern, value in glucose_patterns:
-            if re.search(pattern, response_lower):
-                extracted_data['gluc'] = {'value': value, 'confidence': 8}
+        alcohol_found = False
+        for phrase in alcohol_negative:
+            if phrase in response_lower:
+                extracted_data['alco'] = {'value': 0, 'confidence': 8}
+                alcohol_found = True
                 break
+        
+        if not alcohol_found:
+            for phrase in alcohol_positive:
+                if phrase in response_lower:
+                    if any(word in response_lower for word in ['occasionally', 'sometimes', 'rarely', 'social']):
+                        extracted_data['alco'] = {'value': 1, 'confidence': 7}
+                    else:
+                        extracted_data['alco'] = {'value': 1, 'confidence': 8}
+                    break
+        
+        # Physical activity detection
+        active_positive = [
+            "i exercise", "i work out", "i'm active", "i am active", "physically active",
+            "regular exercise", "go to gym", "play sports", "run regularly", "walk daily",
+            "active lifestyle", "exercise regularly", "stay active", "very active",
+            "workout routine", "fitness routine", "i train"
+        ]
 
+        active_negative = [
+            "don't exercise", "do not exercise", "sedentary", "not active", "inactive",
+            "don't work out", "no exercise", "couch potato", "sit all day",
+            "no physical activity", "avoid exercise", "hate exercise", "lazy",
+            "not very physically active", "not really active", "low activity level",
+    "i’m not active", "i am not active", "i’m inactive", "i am inactive"
+        ]
+        
+        activity_found = False
+        for phrase in active_negative:
+            if phrase in response_lower:
+                extracted_data['active'] = {'value': 0, 'confidence': 8}
+                activity_found = True
+                break
+        
+        if not activity_found:
+            for phrase in active_positive:
+                if phrase in response_lower:
+                    extracted_data['active'] = {'value': 1, 'confidence': 8}
+                    break
+        
         return extracted_data
-    
 
-    def _llm_extract_data(self, question_asked, user_response, expected_feature=None):
-        """
-        Main extraction method that analyzes user response and extracts data with confidence
-        
-        """
-        
-        prompt = f"""
-You are an intelligent health data extraction agent. Your task is to analyze a user's response to a health question and extract relevant health data.
-
-CONTEXT:
-- Question asked: "{question_asked}"
-- User's response: "{user_response}"
-- Expected feature: {expected_feature if expected_feature else "Any health feature"}
-
-HEALTH FEATURES TO EXTRACT:
-{json.dumps(self.feature_descriptions, indent=2)}
-
-EXTRACTION RULES:
-1. Extract ANY health-related data mentioned, even if it doesn't match the expected feature
-2. Assign confidence scores (1-10) based on clarity and specificity
-3. For vague responses like "in my 50s", "around 40", "late 60s" - assign confidence ≤ 5
-4. For exact numbers or clear categorical answers - assign confidence ≥ 7
-5. Do NOT guess or invent data
-6. Handle variations like "No I don't", "Yes I do", "I'm very active", etc.
-
-SPECIAL ATTENTION FOR COMMON EXPRESSIONS:
-- "I am active" / "I'm active" / "Yes I am" (for activity) → active = 1, confidence 8-9
-- "I am not active" / "I'm not active" / "No I'm not" (for activity) → active = 0, confidence 8-9
-- "I smoke" / "Yes I smoke" / "I'm a smoker" → smoke = 1, confidence 8-9
-- "I don't smoke" / "No I don't" / "Non-smoker" → smoke = 0, confidence 8-9
-- "I drink" / "Yes I drink" / "Social drinker" → alco = 1, confidence 7-8
-- "I don't drink" / "No alcohol" / "Teetotaler" → alco = 0, confidence 8-9
-- "Normal" / "Fine" / "Good" (for cholesterol/glucose) → value = 1, confidence 7-8
-- "High" / "Elevated" (for cholesterol/glucose) → value = 2 or 3, confidence 7-8
-- "Male" / "Man" / "Guy" → gender = 2, confidence 9-10
-- "Female" / "Woman" / "Lady" → gender = 1, confidence 9-10
-
-CONFIDENCE SCORING:
-- 9-10: Exact, clear, unambiguous data (e.g., "I am 45 years old", "120/80")
-- 7-8: Clear but slightly ambiguous (e.g., "I'm 45", "normal cholesterol")
-- 5-6: Somewhat clear but needs confirmation (e.g., "around 45", "pretty active")
-- 3-4: Vague or unclear (e.g., "in my 40s", "sometimes active")
-- 1-2: Very vague or unclear (e.g., "middle-aged", "not really sure")
-
-Return ONLY valid JSON in this exact format:
-{{
-  "extracted_features": {{
-    "age": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "gender": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "height": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "weight": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "ap_hi": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "ap_lo": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "cholesterol": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "gluc": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "smoke": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "alco": {{"value": int_or_null, "confidence": int_1_to_10}},
-    "active": {{"value": int_or_null, "confidence": int_1_to_10}}
-  }},
-  "analysis": {{
-    "expected_feature_provided": boolean,
-    "other_features_provided": [list_of_feature_names],
-    "needs_clarification": boolean,
-    "clarification_reason": "string_explanation"
-  }}
-}}
-Fill in actual values and confidence scores for any health data you can extract from the user's response. AVOID GIVING ANY ADVICE IF YOU CANNOT EXTRACT DATA."""
-
-        try:
-            response = self.llm.invoke(prompt)
-            content = response.content if hasattr(response, 'content') else str(response)
-            
-            # Extract JSON from response
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if json_match:
-                result = json.loads(json_match.group(0))
-                return result
-            else:
-                return self._get_fallback_result()
-                
-        except Exception as e:
-            print(f"Extraction error: {e}")
-            return self._get_fallback_result()
-    
-
-    
     def extract_data_with_confidence(self, question_asked, user_response, expected_feature=None):
         """
         Enhanced extraction method that combines manual parsing with LLM analysis
+        if any required feature is missing after manual extraction.
         """
-        
+
         # First try manual parsing
         manual_extraction = self.parse_user_response_manually(user_response)
-        
-        # Create the result structure
+
+        # Create the result structure with default values
         result = {
             "extracted_features": {feature: {"value": None, "confidence": 0} for feature in self.required_features},
             "analysis": {
@@ -529,40 +412,139 @@ Fill in actual values and confidence scores for any health data you can extract 
                 "clarification_reason": ""
             }
         }
-        
+
         # Fill in manually extracted data
         for feature, data in manual_extraction.items():
             if feature in result["extracted_features"]:
                 result["extracted_features"][feature] = data
                 result["analysis"]["other_features_provided"].append(feature)
-        
+
         # Check if expected feature was provided
         if expected_feature and expected_feature in manual_extraction:
             result["analysis"]["expected_feature_provided"] = True
+
+        # If any required feature is still missing AND manual extraction didn't find much, invoke LLM
+        missing_features = [
+            f for f, v in result["extracted_features"].items()
+            if v["value"] is None
+        ]
         
-        # If no data was extracted manually, try LLM
-        if not manual_extraction:
+        # Only use LLM if manual extraction found very little and there are missing features
+        if missing_features and len(manual_extraction) < 2:
             try:
                 llm_result = self._llm_extract_data(question_asked, user_response, expected_feature)
-                if llm_result:
-                    result = llm_result
+                if llm_result and isinstance(llm_result, dict):
+                    # Merge LLM results with manual results (manual takes priority)
+                    for feature, llm_data in llm_result.get("extracted_features", {}).items():
+                        if (feature in result["extracted_features"] and 
+                            result["extracted_features"][feature]["value"] is None and
+                            llm_data.get("value") is not None):
+                            result["extracted_features"][feature] = llm_data
+                            if feature not in result["analysis"]["other_features_provided"]:
+                                result["analysis"]["other_features_provided"].append(feature)
+                    
+                    # Update analysis if LLM found the expected feature
+                    if (expected_feature and 
+                        llm_result.get("extracted_features", {}).get(expected_feature, {}).get("value") is not None):
+                        result["analysis"]["expected_feature_provided"] = True
+                        
             except Exception as e:
                 print(f"LLM extraction failed: {e}")
-                result["analysis"]["needs_clarification"] = True
-                result["analysis"]["clarification_reason"] = "Could not understand the response clearly"
-        
+                # Continue with manual extraction results
+                pass
+
         return result
-    def _get_fallback_result(self):
-        """Fallback result structure when extraction fails"""
-        return {
-            "extracted_features": {feature: {"value": None, "confidence": 0} for feature in self.required_features},
-            "analysis": {
-                "expected_feature_provided": False,
-                "other_features_provided": [],
-                "needs_clarification": True,
-                "clarification_reason": "Could not understand the response clearly"
-            }
-        }
+
+    def _llm_extract_data(self, question_asked, user_response, expected_feature=None):
+        """
+        Fallback LLM extraction with improved error handling
+        """
+        
+        prompt = f"""Extract health information from this response and return it in the EXACT JSON format below.
+
+User was asked: "{question_asked}"
+User responded: "{user_response}"
+
+Return ONLY valid JSON in this exact format (no other text):
+{{
+  "extracted_features": {{
+    "age": {{"value": null, "confidence": 0}},
+    "gender": {{"value": null, "confidence": 0}},
+    "height": {{"value": null, "confidence": 0}},
+    "weight": {{"value": null, "confidence": 0}},
+    "ap_hi": {{"value": null, "confidence": 0}},
+    "ap_lo": {{"value": null, "confidence": 0}},
+    "cholesterol": {{"value": null, "confidence": 0}},
+    "gluc": {{"value": null, "confidence": 0}},
+    "smoke": {{"value": null, "confidence": 0}},
+    "alco": {{"value": null, "confidence": 0}},
+    "active": {{"value": null, "confidence": 0}}
+  }},
+  "analysis": {{
+    "expected_feature_provided": false,
+    "other_features_provided": [],
+    "needs_clarification": false,
+    "clarification_reason": ""
+  }}
+}}
+
+RULES:
+- For gender: 1=female, 2=male, null if unclear
+- For age: exact number, null if unclear
+- For height: value in centimeters, null if unclear
+- For weight: value in kilograms, null if unclear
+- For ap_hi: systolic blood pressure (higher number), null if unclear
+- For ap_lo: diastolic blood pressure (lower number), null if unclear
+- For cholesterol: 1=normal, 2=above normal, 3=well above normal, null if unclear
+- For gluc: 1=normal, 2=above normal, 3=well above normal, null if unclear
+- For smoke: 1=yes, 0=no, null if unclear
+- For alco: 1=yes, 0=no, null if unclear
+- For active: 1=active, 0=inactive, null if unclear
+- Confidence: 1-10 (10=very certain)
+- Return ONLY the JSON, no explanations"""
+
+        try:
+            response = self.llm.invoke(prompt)
+            content = response.content if hasattr(response, 'content') else str(response)
+            
+            # Clean the content - remove any markdown formatting
+            content = content.strip()
+            if content.startswith('```json'):
+                content = content[7:]
+            if content.startswith('```'):
+                content = content[3:]
+            if content.endswith('```'):
+                content = content[:-3]
+            content = content.strip()
+            
+            # Try to find JSON within the content
+            json_patterns = [
+                r'\{[\s\S]*\}',  # Anything between braces
+                r'\{[^{}]*\{[^{}]*\}[^{}]*\}',  # Nested braces pattern
+            ]
+            
+            json_str = None
+            for pattern in json_patterns:
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    json_str = match.group(0)
+                    break
+            
+            if not json_str:
+                json_str = content
+            
+            # Try to parse JSON
+            try:
+                result = json.loads(json_str)
+                return result
+            except json.JSONDecodeError as e:
+                print(f"JSON parsing error: {e}")
+                print(f"Attempted to parse: {json_str[:200]}...")
+                return None
+                
+        except Exception as e:
+            print(f"LLM extraction error: {e}")
+            return None
     
     def generate_response(self, extraction_result, expected_feature):
         """Generate appropriate bot response based on extraction results"""
@@ -570,10 +552,19 @@ Fill in actual values and confidence scores for any health data you can extract 
         analysis = extraction_result["analysis"]
         extracted_features = extraction_result["extracted_features"]
         
-        # Check if expected feature was provided with high confidence
-        if expected_feature and extracted_features[expected_feature]["value"] is not None:
+        # Count how many features were extracted with high confidence
+        high_confidence_features = []
+        for feature, data in extracted_features.items():
+            if data["value"] is not None and data["confidence"] >= 7:
+                high_confidence_features.append(feature)
+        
+        # If we got multiple high-confidence features, acknowledge them
+        if len(high_confidence_features) > 1:
+            return self._handle_multiple_features(high_confidence_features, extracted_features)
+        
+        # If we got the expected feature with high confidence
+        elif expected_feature and extracted_features[expected_feature]["value"] is not None:
             confidence = extracted_features[expected_feature]["confidence"]
-            
             if confidence >= 7:
                 # High confidence - accept the data and move to next question
                 return self._accept_data_and_continue(expected_feature, extracted_features)
@@ -584,18 +575,57 @@ Fill in actual values and confidence scores for any health data you can extract 
                 # Low confidence - ask to repeat
                 return self._ask_for_clarification(expected_feature, "not_understood")
         
-        # Check if other features were provided with high confidence
-        other_high_confidence = []
-        for feature, data in extracted_features.items():
-            if data["value"] is not None and data["confidence"] >= 7 and feature != expected_feature:
-                other_high_confidence.append(feature)
-        
-        if other_high_confidence:
-            # User provided other data - acknowledge and redirect
-            return self._acknowledge_other_data_and_redirect(other_high_confidence, expected_feature, extracted_features)
+        # If we got one other feature with high confidence
+        elif len(high_confidence_features) == 1:
+            feature = high_confidence_features[0]
+            st.session_state.user_data[feature] = extracted_features[feature]["value"]
+            return self._acknowledge_and_redirect(feature, expected_feature)
         
         # Default case - ask for clarification
-        return self._ask_for_clarification(expected_feature, analysis.get("clarification_reason", "not_clear"))
+        else:
+            return self._ask_for_clarification(expected_feature, "not_understood")
+    
+    def _handle_multiple_features(self, features, extracted_features):
+        """Handle when multiple features are extracted from one response"""
+        
+        # Save all the extracted data
+        saved_features = []
+        for feature in features:
+            st.session_state.user_data[feature] = extracted_features[feature]["value"]
+            saved_features.append(feature.replace('_', ' '))
+        
+        # Create acknowledgment message
+        if len(saved_features) <= 3:
+            ack_msg = f"Thank you! I've noted your {', '.join(saved_features)} information."
+        else:
+            ack_msg = f"Thank you! I've noted information about {len(saved_features)} health factors."
+        
+        # Find next question
+        next_feature = self._get_next_missing_feature()
+        if next_feature:
+            st.session_state.last_feature = next_feature
+            question = random.choice(feature_questions[next_feature])
+            return f"{ack_msg} Now, {question.lower()}"
+        else:
+            return self._initiate_prediction()
+    
+    def _acknowledge_and_redirect(self, noted_feature, expected_feature):
+        """Acknowledge one feature and redirect to expected question"""
+        
+        feature_name = noted_feature.replace('_', ' ')
+        ack_msg = f"I noted your {feature_name} information."
+        
+        if expected_feature:
+            question = random.choice(feature_questions[expected_feature])
+            return f"{ack_msg} But I still need to know: {question.lower()}"
+        else:
+            next_feature = self._get_next_missing_feature()
+            if next_feature:
+                st.session_state.last_feature = next_feature
+                question = random.choice(feature_questions[next_feature])
+                return f"{ack_msg} Now, {question.lower()}"
+            else:
+                return self._initiate_prediction()
     
     def _accept_data_and_continue(self, feature, extracted_features):
         """Accept the data and continue to next question"""
@@ -609,36 +639,7 @@ Fill in actual values and confidence scores for any health data you can extract 
             question = random.choice(feature_questions[next_feature])
             return f"Got it! Now, {question.lower()}"
         else:
-            # All data collected - proceed to prediction
             return self._initiate_prediction()
-    
-    def _acknowledge_other_data_and_redirect(self, other_features, expected_feature, extracted_features):
-        """Acknowledge other data provided and redirect to expected question"""
-        
-        # Save the other data provided
-        for feature in other_features:
-            value = extracted_features[feature]["value"]
-            st.session_state.user_data[feature] = value
-        
-        # Create acknowledgment message
-        feature_names = [feature.replace('_', ' ') for feature in other_features]
-        if len(feature_names) == 1:
-            ack_msg = f"I noted your {feature_names[0]} information."
-        else:
-            ack_msg = f"I noted your {', '.join(feature_names)} information."
-        
-        # Redirect to expected question
-        if expected_feature:
-            question = random.choice(feature_questions[expected_feature])
-            return f"{ack_msg} But I still need to know: {question.lower()}"
-        else:
-            next_feature = self._get_next_missing_feature()
-            if next_feature:
-                st.session_state.last_feature = next_feature
-                question = random.choice(feature_questions[next_feature])
-                return f"{ack_msg} Now, {question.lower()}"
-            else:
-                return self._initiate_prediction()
     
     def _ask_for_clarification(self, feature, reason):
         """Ask for clarification on the expected feature"""
@@ -672,10 +673,9 @@ Fill in actual values and confidence scores for any health data you can extract 
     def _initiate_prediction(self):
         """Initiate the prediction process when all data is collected"""
         st.session_state.prediction_done = True
-        return "Perfect! I have all the information I need. Let me analyze your cardiovascular risk now..."
-
+        return "Perfect! I have all the information I need. Let me analyze your heart disease risk now..."
 # Initialize the agent
-agent = HealthDataExtractionAgent(llm)
+agent = HeartDiseaseDataExtractionAgent(llm)
 
 def ask_next_question():
     """Find the next unanswered feature and return a question for it"""

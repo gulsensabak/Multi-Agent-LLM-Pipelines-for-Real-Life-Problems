@@ -73,7 +73,7 @@ feature_questions = {
 
 # Feature descriptions for better understanding
 feature_descriptions = {
-    "gender": "gender (M for male, F for female)",
+    "gender": "gender (1 for male, 0 for female)",  # Değiştirildi: M/F yerine 1/0
     "age": "age in years (exact number)",
     "smoking": "smoking status (0=no, 1=yes)",
     "yellow_fingers": "yellowing of fingers (0=no, 1=yes)",
@@ -89,6 +89,7 @@ feature_descriptions = {
     "swallowing_difficulty": "difficulty swallowing (0=no, 1=yes)",
     "chest_pain": "chest pain (0=no, 1=yes)"
 }
+
 
 # Streamlit session states
 if "chat_history" not in st.session_state:
@@ -106,7 +107,7 @@ if "prediction_explanation" not in st.session_state:
 if "chat_closed" not in st.session_state:
     st.session_state.chat_closed = False
 
-llm = ChatOllama(model="gemma2:latest", temperature=0.1)
+llm = ChatOllama(model="mistral:latest", temperature=0.1)
 
 class LungCancerDataExtractionAgent:
     """Enhanced agent for extracting lung cancer risk data with confidence scoring"""
@@ -116,7 +117,6 @@ class LungCancerDataExtractionAgent:
         self.required_features = required_features
         self.feature_descriptions = feature_descriptions
     
-
     def parse_user_response_manually(self, user_response):
         """
         Manual parsing for common patterns before using LLM
@@ -126,27 +126,38 @@ class LungCancerDataExtractionAgent:
         extracted_data = {}
         
         # Gender detection
-        gender_male = ['male', 'man', 'guy', 'boy', 'gentleman', 'he/him', 'i am a man', 'i\'m a man']
-        gender_female = ['female', 'woman', 'girl', 'lady', 'she/her', 'i am a woman', 'i\'m a woman']
+        gender_male = [
+            'male', 'man', 'guy', 'boy', 'gentleman', 'he/him', 'he him',
+            "i am a man", "i'm a man", "identify as male", "identify as a man",
+            "he is male", "he is a man", "my gender is male"
+        ]
+
+        gender_female = [
+            'female', 'woman', 'girl', 'lady', 'she/her', 'she her',
+            "i am a woman", "i'm a woman", "identify as female", "identify as a woman",
+            "she is female", "she is a woman", "my gender is female"
+        ]
         
         if any(word in response_lower for word in gender_male):
-            extracted_data['gender'] = {'value': 'M', 'confidence': 9}
-        elif any(word in response_lower for word in gender_female):
-            extracted_data['gender'] = {'value': 'F', 'confidence': 9}
+            extracted_data['gender'] = {'value': 1, 'confidence': 9}
+        if any(word in response_lower for word in gender_female):
+            extracted_data['gender'] = {'value': 0, 'confidence': 9}
         
         # Age detection 
         age_patterns = [
-            r"i'?m\s+(\d+)(?:\s+now)?",  # I'm 65, I'm 65 now
-            r"(\d+)\s+years?\s+old",     # 65 years old
-            r"age\s*:?\s*(\d+)",         # age: 65, age 65
-            r"(\d+)\s*yo",               # 65yo
-            r"in\s+my\s+(\d+)'?s",       # in my 60's
-            r"●\s*age\s*:?\s*(\d+)",     # ● Age: 65
-            r"i\s+am\s+(\d+)",           # I am 65
-            r"turning\s+(\d+)",          # turning 65
-            r"just\s+turned\s+(\d+)",    # just turned 65
-            r"(\d+)\s+year\s+old",       # 65 year old
-            r"at\s+(\d+)",               # at 65
+            r"\b(?:i'?m|i\s+am|im)\s+(\d{1,3})(?:\s+now)?\b",           # I'm 65, I am 65, im 65
+            r"\b(\d{1,3})\s+(?:years?|yrs?)\s+old\b",                   # 65 years old, 65 yrs old
+            r"\bage\s*[:\-]?\s*(\d{1,3})\b",                            # age: 65, age - 65
+            r"\b(\d{1,3})\s*yo\b",                                      # 65yo
+            r"\bin\s+my\s+(\d{2})'?s\b",                                # in my 60s, in my 20's
+            r"●\s*age\s*[:\-]?\s*(\d{1,3})",                            # ● Age: 65
+            r"\bturn(?:ing|s)?\s+(\d{1,3})\b",                          # turning 65, turns 65
+            r"\bjust\s+turned\s+(\d{1,3})\b",                           # just turned 65
+            r"\b(\d{1,3})\s+year\s+old\b",                              # 65 year old
+            r"\bat\s+age\s+(\d{1,3})\b",                                # at age 65
+            r"\b(\d{1,3})\b\s*(?:yo\b|y/o\b|yrs?\b)",                   # 65 yo, 65 y/o, 65 yrs
+            r"\breached\s+age\s+of\s+(\d{1,3})\b",                      # reached age of 65
+            r"\b(\d{1,3})\s+anniversar(?:y|ies)\s+of\s+birth\b",        # 65 anniversary of birth
         ]
         
         for pattern in age_patterns:
@@ -155,212 +166,365 @@ class LungCancerDataExtractionAgent:
                 age = int(match.group(1))
                 if 10 <= age <= 120:  # Reasonable age range
                     extracted_data['age'] = {'value': age, 'confidence': 9}
+                    break  # Take first valid match
         
         # Smoking detection 
         smoking_negative = [
-            "don't smoke", "never smoked", "quit smoking", "stopped smoking", 
-            "non-smoker", "i don't smoke", "i never smoke", "no smoking",
-            "used to smoke", "smoked when", "quit years ago", "gave up smoking"
+            "don't smoke", "do not smoke", "never smoked", "non-smoker", "non smoker",
+            "quit smoking", "stopped smoking", "gave up smoking", "used to smoke",
+            "smoked in the past", "i have never smoked", "i am not a smoker",
+            "not a smoker", "never been a smoker"
         ]
+
         smoking_positive = [
-            'i smoke', 'smoking', 'smoker', 'cigarette', 'tobacco', 'smoke a lot',
-            'smoke cigarettes', 'i am a smoker', 'smoke regularly'
+            "i smoke", "i'm a smoker", "i am a smoker", "smoker", "smoking",
+            "smoke regularly", "smoke a lot", "smoke cigarettes", "smoke tobacco",
+            "cigarette", "tobacco", "nicotine", "can't quit smoking", "cannot quit smoking",
+            "chain smoker", "i have been smoking", "pack a day"
         ]
         
-        if any(phrase in response_lower for phrase in smoking_negative):
-            if any(past in response_lower for past in ["used to", "when i was", "back then"]):
-                extracted_data['smoking'] = {'value': 0, 'confidence': 8} 
-            else:
-                extracted_data['smoking'] = {'value': 0, 'confidence': 9}
-        elif any(word in response_lower for word in smoking_positive):
-            extracted_data['smoking'] = {'value': 1, 'confidence': 8}
+        # Check negative first (more specific)
+        smoking_found = False
+        for phrase in smoking_negative:
+            if phrase in response_lower:
+                if any(past in response_lower for past in ["used to", "when i was", "back then", "in the past"]):
+                    extracted_data['smoking'] = {'value': 0, 'confidence': 8} 
+                else:
+                    extracted_data['smoking'] = {'value': 0, 'confidence': 9}
+                smoking_found = True
+                break
+        
+        if not smoking_found:
+            for phrase in smoking_positive:
+                if phrase in response_lower:
+                    extracted_data['smoking'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Yellow fingers
-        yellow_finger_patterns = [
-            'yellow finger', 'fingers are yellow', 'yellowing finger', 
-            'stained finger', 'finger stain', 'nicotine stain'
+        yellow_finger_positive = [
+            "yellow finger", "yellowing finger", "yellow fingers", "yellowing fingers",
+            "fingers are yellow", "fingers look yellow", "fingers turn yellow",
+            "yellow stain", "yellow stains", "stained finger", "stained fingers",
+            "nicotine stain", "nicotine marks", "yellow marks on fingers",
+            "finger discoloration", "fingers discolored"
         ]
-        if any(pattern in response_lower for pattern in yellow_finger_patterns):
+
+        yellow_finger_negative = [
+            "no yellow finger", "no yellowing finger", "no yellow fingers", "no yellow stains",
+            "fingers are not yellow", "fingers look normal", "no stains on fingers",
+            "fingers are clean", "no discoloration", "no nicotine stains",
+            "fingers not discolored", "no yellow marks on fingers"
+        ]
+
+        if any(keyword in response_lower for keyword in yellow_finger_positive):
             extracted_data['yellow_fingers'] = {'value': 1, 'confidence': 8}
-        
+        elif any(keyword in response_lower for keyword in yellow_finger_negative):
+            extracted_data['yellow_fingers'] = {'value': 0, 'confidence': 8}
+
         # Anxiety
-        anxiety_positive = ['anxious', 'anxiety', 'feel anxious', 'i have anxiety', 'worried', 'nervous']
-        anxiety_negative = ['no anxiety', 'not anxious', 'calm', 'relaxed']
+        anxiety_positive = [
+            "anxious", "i feel anxious", "i am anxious", "i get anxious",
+            "i have anxiety", "anxiety issues", "anxiety problems", "anxiety symptoms",
+            "suffering from anxiety", "dealing with anxiety", "panic attacks",
+            "nervous", "worried", "on edge", "panic", "can't relax", "cannot relax"
+        ]
+
+        anxiety_negative = [
+            "no anxiety", "not anxious", "feeling calm", "i am calm", "feeling relaxed",
+            "i am relaxed", "don't feel anxious", "do not feel anxious",
+            "i have no anxiety", "calm state", "peace of mind", "no sign of anxiety"
+        ]
         
-        if any(phrase in response_lower for phrase in anxiety_negative):
-            extracted_data['anxiety'] = {'value': 0, 'confidence': 8}
-        elif any(word in response_lower for word in anxiety_positive):
-            extracted_data['anxiety'] = {'value': 1, 'confidence': 8}
+        anxiety_found = False
+        for phrase in anxiety_negative:
+            if phrase in response_lower:
+                extracted_data['anxiety'] = {'value': 0, 'confidence': 8}
+                anxiety_found = True
+                break
+        
+        if not anxiety_found:
+            for phrase in anxiety_positive:
+                if phrase in response_lower:
+                    extracted_data['anxiety'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Peer pressure
         peer_pressure_positive = [
-            'peer pressure', 'under pressure', 'pressure from peers', 
-            'peer influence', 'influenced by peers', 'pressure to',
-            'everyone else', 'friends pressure', 'social pressure'
+            "peer pressure", "pressure from peers", "under pressure", "peer influence",
+            "influenced by friends", "influenced by peers", "pressure to drink",
+            "pressure to smoke", "social pressure", "friends made me", "friends pressured me",
+            "friends wanted me to", "everyone else", "felt pressured"
         ]
+
         peer_pressure_negative = [
-            'no peer pressure', 'not under pressure', 'no pressure from peers',
-            'no social pressure', 'independent decision'
+            "no peer pressure", "not under pressure", "no pressure from peers",
+            "no social pressure", "independent decision", "independent choice",
+            "wasn't influenced", "decided on my own", "my own decision", "it was my choice"
         ]
         
-        if any(phrase in response_lower for phrase in peer_pressure_negative):
-            extracted_data['peer_pressure'] = {'value': 0, 'confidence': 8}
-        elif any(phrase in response_lower for phrase in peer_pressure_positive):
-            extracted_data['peer_pressure'] = {'value': 1, 'confidence': 8}
+        pressure_found = False
+        for phrase in peer_pressure_negative:
+            if phrase in response_lower:
+                extracted_data['peer_pressure'] = {'value': 0, 'confidence': 8}
+                pressure_found = True
+                break
+        
+        if not pressure_found:
+            for phrase in peer_pressure_positive:
+                if phrase in response_lower:
+                    extracted_data['peer_pressure'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Chronic disease
         chronic_positive = [
-            'chronic', 'heart condition', 'diabetes', 'hypertension', 'copd', 
-            'chronic disease', 'heart problem', 'high blood pressure', 'diabetic',
-            'chronic illness', 'ongoing condition', 'medical condition'
+            "chronic disease", "chronic illness", "chronic condition", "ongoing condition",
+            "medical condition", "heart problem", "heart condition", "diabetes", "diabetic",
+            "hypertension", "high blood pressure", "copd", "living with chronic",
+            "have a chronic condition", "suffering from chronic", "diagnosed with diabetes",
+            "diagnosed with hypertension"
         ]
+
         chronic_negative = [
-            'no chronic', 'don\'t have chronic', 'not have chronic', 
-            'no medical condition', 'healthy', 'no health problems'
+            "no chronic issues", "no chronic conditions", "no medical conditions",
+            "don't have chronic", "do not have chronic", "not chronically ill",
+            "no health problems", "healthy", "in good health", "free of disease",
+            "never had a chronic condition"
         ]
         
-        if any(phrase in response_lower for phrase in chronic_negative):
-            extracted_data['chronic_disease'] = {'value': 0, 'confidence': 8}
-        elif any(keyword in response_lower for keyword in chronic_positive):
-            extracted_data['chronic_disease'] = {'value': 1, 'confidence': 8}
+        chronic_found = False
+        for phrase in chronic_negative:
+            if phrase in response_lower:
+                extracted_data['chronic_disease'] = {'value': 0, 'confidence': 8}
+                chronic_found = True
+                break
+        
+        if not chronic_found:
+            for phrase in chronic_positive:
+                if phrase in response_lower:
+                    extracted_data['chronic_disease'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Fatigue
         fatigue_positive = [
-            'tired', 'fatigue', 'exhausted', 'weary', 'feel tired', 'feeling tired',
-            'wake up tired', 'always tired', 'constantly tired', 'feel exhausted',
-            'lacking energy', 'low energy', 'sluggish', 'worn out', 'drained'
+            "tired", "fatigue", "exhausted", "weary", "sluggish", "drained", "worn out",
+            "feel tired", "feeling tired", "always tired", "constantly tired",
+            "wake up tired", "lacking energy", "low energy", "can't stay awake",
+            "get tired easily", "no energy", "sleepy all the time"
         ]
+
         fatigue_negative = [
-            'not tired', 'no fatigue', 'don\'t feel tired', 'energetic', 
-            'feel energetic', 'full of energy', 'well-rested'
+            "not tired", "not fatigued", "not exhausted", "no fatigue",
+            "don't feel tired", "do not feel tired", "energetic", "feel energetic",
+            "full of energy", "well rested", "good energy levels", "active and alert"
         ]
         
-        if any(phrase in response_lower for phrase in fatigue_negative):
-            extracted_data['fatigue'] = {'value': 0, 'confidence': 8}
-        elif any(keyword in response_lower for keyword in fatigue_positive):
-            extracted_data['fatigue'] = {'value': 1, 'confidence': 8}
+        fatigue_found = False
+        for phrase in fatigue_negative:
+            if phrase in response_lower:
+                extracted_data['fatigue'] = {'value': 0, 'confidence': 8}
+                fatigue_found = True
+                break
+        
+        if not fatigue_found:
+            for phrase in fatigue_positive:
+                if phrase in response_lower:
+                    extracted_data['fatigue'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Allergy
-        allergy_negative = [
-            "don't have", "no known", "not have", "don't have an allergy", 
-            "no allergy", "no allergies", "not allergic"
-        ]
         allergy_positive = [
-            'allerg', 'have allergy', 'have allergies', 'allergic to', 
-            'i am allergic', 'allergic reaction'
+            "allergy", "allergies", "allergic", "i have allergies", "i am allergic",
+            "allergic to", "allergic reaction", "allergy symptoms", "suffer from allergies"
+        ]
+
+        allergy_negative = [
+            "no allergy", "no allergies", "no known allergies", "don't have allergies",
+            "do not have allergies", "not allergic", "i am not allergic",
+            "without any allergies"
         ]
         
-        if any(neg in response_lower for neg in allergy_negative):
-            extracted_data['allergy'] = {'value': 0, 'confidence': 8}
-        elif any(pos in response_lower for pos in allergy_positive):
-            extracted_data['allergy'] = {'value': 1, 'confidence': 8}
+        allergy_found = False
+        for phrase in allergy_negative:
+            if phrase in response_lower:
+                extracted_data['allergy'] = {'value': 0, 'confidence': 8}
+                allergy_found = True
+                break
+        
+        if not allergy_found:
+            for phrase in allergy_positive:
+                if phrase in response_lower:
+                    extracted_data['allergy'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Wheezing
         wheeze_positive = [
-            'wheez', 'wheezing sounds', 'whistling breath', 'breathing sounds',
-            'noisy breathing', 'wheeze when'
+            "wheeze", "wheezing", "wheezing sound", "wheezing attack", "noisy breathing",
+            "whistling sound", "whistling breath", "chest tightness and wheezing",
+            "breathing sound", "breathing issues", "breathing problems"
         ]
-        wheeze_negative = ['no wheez', 'don\'t wheez', 'clear breathing']
+
+        wheeze_negative = [
+            "no wheeze", "no wheezing", "don't wheeze", "breathing is clear",
+            "clear lungs", "no noisy breathing", "no abnormal breathing"
+        ]
         
-        if any(phrase in response_lower for phrase in wheeze_negative):
-            extracted_data['wheezing'] = {'value': 0, 'confidence': 8}
-        elif any(keyword in response_lower for keyword in wheeze_positive):
-            extracted_data['wheezing'] = {'value': 1, 'confidence': 8}
+        wheeze_found = False
+        for phrase in wheeze_negative:
+            if phrase in response_lower:
+                extracted_data['wheezing'] = {'value': 0, 'confidence': 8}
+                wheeze_found = True
+                break
+        
+        if not wheeze_found:
+            for phrase in wheeze_positive:
+                if phrase in response_lower:
+                    extracted_data['wheezing'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Alcohol
-        alcohol_negative = [
-            'don\'t drink', 'no alcohol', 'not drink', 'don\'t drink alcohol',
-            'no drinking', 'teetotal', 'sober', 'never drink'
-        ]
         alcohol_positive = [
-            'drink', 'alcohol', 'beer', 'wine', 'drink alcohol', 'drinking',
-            'have a drink', 'social drinking', 'wine with dinner'
+            "i drink alcohol", "i drink beer", "i drink wine", "drink alcohol",
+            "drinking alcohol", "i have a drink", "social drinking", "wine with dinner",
+            "enjoy wine", "enjoy beer", "regularly drink", "often drink"
+        ]
+
+        alcohol_negative = [
+            "don't drink", "do not drink", "never drink", "no alcohol", "i'm sober",
+            "avoid alcohol", "abstain from alcohol", "no alcohol use", "teetotal"
         ]
         
-        if any(phrase in response_lower for phrase in alcohol_negative):
-            extracted_data['alcohol_consuming'] = {'value': 0, 'confidence': 8}
-        elif any(keyword in response_lower for keyword in alcohol_positive):
-            if any(word in response_lower for word in ['occasionally', 'sometimes', 'rarely', 'social']):
-                extracted_data['alcohol_consuming'] = {'value': 1, 'confidence': 7}
-            else:
-                extracted_data['alcohol_consuming'] = {'value': 1, 'confidence': 8}
+        alcohol_found = False
+        for phrase in alcohol_negative:
+            if phrase in response_lower:
+                extracted_data['alcohol_consuming'] = {'value': 0, 'confidence': 8}
+                alcohol_found = True
+                break
+        
+        if not alcohol_found:
+            for phrase in alcohol_positive:
+                if phrase in response_lower:
+                    if any(word in response_lower for word in ['occasionally', 'sometimes', 'rarely', 'social']):
+                        extracted_data['alcohol_consuming'] = {'value': 1, 'confidence': 7}
+                    else:
+                        extracted_data['alcohol_consuming'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Coughing
         cough_positive = [
-            'cough', 'coughing', 'have a cough', 'i cough', 'persistent cough',
-            'dry cough', 'wet cough', 'chronic cough', 'cough up'
+            "cough", "coughing", "i have a cough", "i cough", "persistent cough",
+            "dry cough", "wet cough", "chronic cough", "frequent coughing",
+            "can't stop coughing", "bouts of coughing"
         ]
-        cough_negative = ['no cough', 'don\'t cough', 'not cough', 'no coughing']
+
+        cough_negative = [
+            "no cough", "no coughing", "don't cough", "do not cough", "not coughing",
+            "without any cough", "cough resolved", "cough has gone"
+        ]
         
-        if any(phrase in response_lower for phrase in cough_negative):
-            extracted_data['coughing'] = {'value': 0, 'confidence': 8}
-        elif any(keyword in response_lower for keyword in cough_positive):
-            if 'persistent' in response_lower or 'chronic' in response_lower:
-                extracted_data['coughing'] = {'value': 1, 'confidence': 9}
-            else:
-                extracted_data['coughing'] = {'value': 1, 'confidence': 8}
+        cough_found = False
+        for phrase in cough_negative:
+            if phrase in response_lower:
+                extracted_data['coughing'] = {'value': 0, 'confidence': 8}
+                cough_found = True
+                break
+        
+        if not cough_found:
+            for phrase in cough_positive:
+                if phrase in response_lower:
+                    if 'persistent' in response_lower or 'chronic' in response_lower:
+                        extracted_data['coughing'] = {'value': 1, 'confidence': 9}
+                    else:
+                        extracted_data['coughing'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Shortness of breath
         breath_positive = [
-            'shortness of breath', 'short of breath', 'breathless', 'difficulty breathing',
-            'trouble breathing', 'hard to breathe', 'can\'t breathe', 'breathing problem',
-            'feel short of breath', 'sometimes feel short', 'experience shortness',
-            'out of breath', 'breath shortness', 'breathing difficulty', 'struggle to breathe',
-            'winded', 'can\'t catch my breath', 'gasping', 'panting'
+            "shortness of breath", "short of breath", "out of breath", "breathless",
+            "difficulty breathing", "trouble breathing", "hard to breathe",
+            "can't breathe", "unable to breathe", "breathing problems", "struggle to breathe"
         ]
+
         breath_negative = [
-            'no shortness', 'not breathless', 'no difficulty breathing', 
-            'breathing fine', 'no breathing problems', 'breathe normally'
+            "no shortness of breath", "not breathless", "breathing is fine",
+            "breathing is normal", "can breathe normally", "no breathing problems"
         ]
         
-        if any(phrase in response_lower for phrase in breath_negative):
-            extracted_data['shortness_of_breath'] = {'value': 0, 'confidence': 8}
-        elif any(keyword in response_lower for keyword in breath_positive):
-            extracted_data['shortness_of_breath'] = {'value': 1, 'confidence': 8}
+        breath_found = False
+        for phrase in breath_negative:
+            if phrase in response_lower:
+                extracted_data['shortness_of_breath'] = {'value': 0, 'confidence': 8}
+                breath_found = True
+                break
+        
+        if not breath_found:
+            for phrase in breath_positive:
+                if phrase in response_lower:
+                    extracted_data['shortness_of_breath'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Swallowing difficulty 
         swallow_positive = [
-            'swallow', 'swallowing', 'difficulty swallowing', 'hard to swallow',
-            'trouble swallowing', 'can\'t swallow', 'swallowing problem',
-            'struggle to swallow', 'painful swallowing', 'have swallow'
+            "difficulty swallowing", "trouble swallowing", "problems swallowing",
+            "hard to swallow", "can't swallow", "swallowing problem", "swallowing hurts",
+            "swallowing is hard", "swallowing trouble"
         ]
+
         swallow_negative = [
-            'no difficulty swallowing', 'no swallowing', 'swallow fine', 
-            'no trouble swallowing', 'swallow normally'
+            "no difficulty swallowing", "no trouble swallowing", "swallowing is normal",
+            "swallowing is fine", "can swallow normally", "no swallowing problems"
         ]
         
-        if any(phrase in response_lower for phrase in swallow_negative):
-            extracted_data['swallowing_difficulty'] = {'value': 0, 'confidence': 8}
-        elif any(keyword in response_lower for keyword in swallow_positive):
-            if any(word in response_lower for word in ['difficult', 'hard', 'trouble', 'struggle', 'can\'t']):
-                extracted_data['swallowing_difficulty'] = {'value': 1, 'confidence': 8}
+        swallow_found = False
+        for phrase in swallow_negative:
+            if phrase in response_lower:
+                extracted_data['swallowing_difficulty'] = {'value': 0, 'confidence': 8}
+                swallow_found = True
+                break
+        
+        if not swallow_found:
+            for phrase in swallow_positive:
+                if phrase in response_lower:
+                    extracted_data['swallowing_difficulty'] = {'value': 1, 'confidence': 8}
+                    break
         
         # Chest pain
         chest_positive = [
-            'chest pain', 'pain in chest', 'chest hurts', 'chest discomfort',
-            'chest tightness', 'tight chest', 'chest pressure', 'chest ache'
+            "chest pain", "chest ache", "chest discomfort", "chest tightness",
+            "chest pressure", "chest hurts", "pain in chest", "tight chest",
+            "chest feels tight", "chest feels heavy", "stabbing chest pain",
+            "burning chest pain", "sharp chest pain"
         ]
+
         chest_negative = [
-            'no chest pain', 'no pain in chest', 'chest feels fine', 
-            'no chest discomfort', 'no chest problems'
+            "no chest pain", "no chest discomfort", "chest feels fine", "chest is fine",
+            "not experiencing chest pain", "chest is clear", "don't have chest pain"
         ]
         
-        if any(phrase in response_lower for phrase in chest_negative):
-            extracted_data['chest_pain'] = {'value': 0, 'confidence': 8}
-        elif any(keyword in response_lower for keyword in chest_positive):
-            extracted_data['chest_pain'] = {'value': 1, 'confidence': 8}
+        chest_found = False
+        for phrase in chest_negative:
+            if phrase in response_lower:
+                extracted_data['chest_pain'] = {'value': 0, 'confidence': 8}
+                chest_found = True
+                break
+        
+        if not chest_found:
+            for phrase in chest_positive:
+                if phrase in response_lower:
+                    extracted_data['chest_pain'] = {'value': 1, 'confidence': 8}
+                    break
         
         return extracted_data
 
     def extract_data_with_confidence(self, question_asked, user_response, expected_feature=None):
         """
         Enhanced extraction method that combines manual parsing with LLM analysis
+        if any required feature is missing after manual extraction.
         """
-        
+
         # First try manual parsing
         manual_extraction = self.parse_user_response_manually(user_response)
-        
-        # Create the result structure
+
+        # Create the result structure with default values
         result = {
             "extracted_features": {feature: {"value": None, "confidence": 0} for feature in self.required_features},
             "analysis": {
@@ -370,66 +534,60 @@ class LungCancerDataExtractionAgent:
                 "clarification_reason": ""
             }
         }
-        
+
         # Fill in manually extracted data
         for feature, data in manual_extraction.items():
             if feature in result["extracted_features"]:
                 result["extracted_features"][feature] = data
                 result["analysis"]["other_features_provided"].append(feature)
-        
+
         # Check if expected feature was provided
         if expected_feature and expected_feature in manual_extraction:
             result["analysis"]["expected_feature_provided"] = True
+
+        # If any required feature is still missing AND manual extraction didn't find much, invoke LLM
+        missing_features = [
+            f for f, v in result["extracted_features"].items()
+            if v["value"] is None
+        ]
         
-        # If no data was extracted manually, try LLM
-        if not manual_extraction:
+        # Only use LLM if manual extraction found very little and there are missing features
+        if missing_features and len(manual_extraction) < 2:
             try:
                 llm_result = self._llm_extract_data(question_asked, user_response, expected_feature)
-                if llm_result:
-                    result = llm_result
+                if llm_result and isinstance(llm_result, dict):
+                    # Merge LLM results with manual results (manual takes priority)
+                    for feature, llm_data in llm_result.get("extracted_features", {}).items():
+                        if (feature in result["extracted_features"] and 
+                            result["extracted_features"][feature]["value"] is None and
+                            llm_data.get("value") is not None):
+                            result["extracted_features"][feature] = llm_data
+                            if feature not in result["analysis"]["other_features_provided"]:
+                                result["analysis"]["other_features_provided"].append(feature)
+                    
+                    # Update analysis if LLM found the expected feature
+                    if (expected_feature and 
+                        llm_result.get("extracted_features", {}).get(expected_feature, {}).get("value") is not None):
+                        result["analysis"]["expected_feature_provided"] = True
+                        
             except Exception as e:
                 print(f"LLM extraction failed: {e}")
-                result["analysis"]["needs_clarification"] = True
-                result["analysis"]["clarification_reason"] = "Could not understand the response clearly"
-        
+                # Continue with manual extraction results
+                pass
+
         return result
-    
+
     def _llm_extract_data(self, question_asked, user_response, expected_feature=None):
         """
-        Fallback LLM extraction with improved prompt
+        Fallback LLM extraction with improved error handling
         """
         
-        prompt = f"""You are a medical data extraction expert. Extract health information from the user's response.
+        prompt = f"""Extract health information from this response and return it in the EXACT JSON format below.
 
 User was asked: "{question_asked}"
 User responded: "{user_response}"
 
-Extract any mentioned health data and assign confidence scores (1-10):
-
-HEALTH FEATURES TO EXTRACT:
-- gender: M/F (from male/female/man/woman etc.)
-- age: exact number in years
-- smoking: 1 if smokes/smoker, 0 if doesn't smoke
-- yellow_fingers: 1 if mentioned yellow fingers, 0 otherwise
-- anxiety: 1 if mentions anxiety/anxious, 0 otherwise
-- peer_pressure: 1 if mentions peer pressure, 0 otherwise
-- chronic_disease: 1 if mentions chronic conditions/heart disease etc., 0 otherwise
-- fatigue: 1 if mentions tired/fatigue/exhausted, 0 otherwise
-- allergy: 1 if has allergies, 0 if no allergies
-- wheezing: 1 if mentions wheezing sounds, 0 otherwise
-- alcohol_consuming: 1 if drinks alcohol, 0 otherwise
-- coughing: 1 if mentions cough/coughing, 0 otherwise
-- shortness_of_breath: 1 if mentions breathing difficulties, 0 otherwise
-- swallowing_difficulty: 1 if mentions swallowing problems, 0 otherwise
-- chest_pain: 1 if mentions chest pain, 0 otherwise
-
-CONFIDENCE LEVELS:
-- 9-10: Very clear (exact age, clear yes/no)
-- 7-8: Clear but slightly ambiguous
-- 5-6: Somewhat unclear, needs confirmation
-- 1-4: Very unclear or vague
-
-Return ONLY this JSON format:
+Return ONLY valid JSON in this exact format (no other text):
 {{
   "extracted_features": {{
     "gender": {{"value": null, "confidence": 0}},
@@ -456,18 +614,50 @@ Return ONLY this JSON format:
   }}
 }}
 
-Fill in actual values and confidence scores for any health data you can extract from the user's response. AVOID GIVING ANY ADVICE IF YOU CANNOT EXTRACT DATA."""
+RULES:
+- For gender: 1=male, 0=female, null if unclear
+- For age: exact number, null if unclear  
+- For others: 1=yes, 0=no, null if unclear
+- Confidence: 1-10 (10=very certain)
+- Return ONLY the JSON, no explanations"""
 
         try:
             response = self.llm.invoke(prompt)
             content = response.content if hasattr(response, 'content') else str(response)
             
-            # Extract JSON from response
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if json_match:
-                result = json.loads(json_match.group(0))
+            # Clean the content - remove any markdown formatting
+            content = content.strip()
+            if content.startswith('```json'):
+                content = content[7:]
+            if content.startswith('```'):
+                content = content[3:]
+            if content.endswith('```'):
+                content = content[:-3]
+            content = content.strip()
+            
+            # Try to find JSON within the content
+            json_patterns = [
+                r'\{[\s\S]*\}',  # Anything between braces
+                r'\{[^{}]*\{[^{}]*\}[^{}]*\}',  # Nested braces pattern
+            ]
+            
+            json_str = None
+            for pattern in json_patterns:
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    json_str = match.group(0)
+                    break
+            
+            if not json_str:
+                json_str = content
+            
+            # Try to parse JSON
+            try:
+                result = json.loads(json_str)
                 return result
-            else:
+            except json.JSONDecodeError as e:
+                print(f"JSON parsing error: {e}")
+                print(f"Attempted to parse: {json_str[:200]}...")
                 return None
                 
         except Exception as e:
