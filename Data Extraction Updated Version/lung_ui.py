@@ -231,8 +231,9 @@ class LungCancerDataExtractionAgent:
 
         anxiety_negative = [
             "no anxiety", "not anxious", "feeling calm", "i am calm", "feeling relaxed",
-            "i am relaxed", "don't feel anxious", "do not feel anxious",
-            "i have no anxiety", "calm state", "peace of mind", "no sign of anxiety"
+            "am relaxed", "don't feel anxious", "do not feel anxious",
+            "i have no anxiety", "calm state", "peace of mind", "no sign of anxiety",
+            "not have anxiety", "no anxiety issues", "no anxiety problems"
         ]
         
         anxiety_found = False
@@ -250,14 +251,14 @@ class LungCancerDataExtractionAgent:
         
         # Peer pressure
         peer_pressure_positive = [
-            "peer pressure", "pressure from peers", "under pressure", "peer influence",
+            "peer pressure", "pressure from peers", "under pressure", "peer influence", "under peer pressure",
             "influenced by friends", "influenced by peers", "pressure to drink",
             "pressure to smoke", "social pressure", "friends made me", "friends pressured me",
             "friends wanted me to", "everyone else", "felt pressured"
         ]
 
         peer_pressure_negative = [
-            "no peer pressure", "not under pressure", "no pressure from peers",
+            "no peer pressure", "not under pressure", "no pressure from peers", "not under peer pressure",
             "no social pressure", "independent decision", "independent choice",
             "wasn't influenced", "decided on my own", "my own decision", "it was my choice"
         ]
@@ -364,8 +365,8 @@ class LungCancerDataExtractionAgent:
         ]
 
         wheeze_negative = [
-            "no wheeze", "no wheezing", "don't wheeze", "breathing is clear",
-            "clear lungs", "no noisy breathing", "no abnormal breathing"
+            "no wheeze", "no wheezing", "don't wheeze", "breathing is clear", "doesn't wheeze", "does not wheeze",
+            "clear lungs", "no noisy breathing", "no abnormal breathing", "do not wheeze"
         ]
         
         wheeze_found = False
@@ -418,7 +419,8 @@ class LungCancerDataExtractionAgent:
 
         cough_negative = [
             "no cough", "no coughing", "don't cough", "do not cough", "not coughing",
-            "without any cough", "cough resolved", "cough has gone"
+            "without any cough", "cough resolved", "cough has gone", "do not have coughing",
+            "don't have coughing"
         ]
         
         cough_found = False
@@ -441,12 +443,14 @@ class LungCancerDataExtractionAgent:
         breath_positive = [
             "shortness of breath", "short of breath", "out of breath", "breathless",
             "difficulty breathing", "trouble breathing", "hard to breathe",
-            "can't breathe", "unable to breathe", "breathing problems", "struggle to breathe"
+            "can't breathe", "unable to breathe", "breathing problems", "struggle to breathe",
+            "experience shortness of breath", "breathing difficulty", "breathing issues"
         ]
 
         breath_negative = [
             "no shortness of breath", "not breathless", "breathing is fine",
-            "breathing is normal", "can breathe normally", "no breathing problems"
+            "breathing is normal", "can breathe normally", "no breathing problems",
+            "not experience shortness of breath", "not have shortness of breath"
         ]
         
         breath_found = False
@@ -471,7 +475,8 @@ class LungCancerDataExtractionAgent:
 
         swallow_negative = [
             "no difficulty swallowing", "no trouble swallowing", "swallowing is normal",
-            "swallowing is fine", "can swallow normally", "no swallowing problems"
+            "swallowing is fine", "can swallow normally", "no swallowing problems", "not experiencing swallowing",
+            "not have swallowing", "swallowing is easy", "swallowing is clear"
         ]
         
         swallow_found = False
@@ -497,7 +502,8 @@ class LungCancerDataExtractionAgent:
 
         chest_negative = [
             "no chest pain", "no chest discomfort", "chest feels fine", "chest is fine",
-            "not experiencing chest pain", "chest is clear", "don't have chest pain"
+            "not experiencing chest pain", "chest is clear", "don't have chest pain", "don' feel chest pain",
+            "do not feel chest pain", "no tightness in chest", "no pressure in chest", "no ache in chest"
         ]
         
         chest_found = False
@@ -522,8 +528,8 @@ class LungCancerDataExtractionAgent:
         """
 
         # First try manual parsing
-        manual_extraction = self.parse_user_response_manually(user_response)
-
+        # manual_extraction = self.parse_user_response_manually(user_response)
+        manual_extraction = {}
         # Create the result structure with default values
         result = {
             "extracted_features": {feature: {"value": None, "confidence": 0} for feature in self.required_features},
@@ -617,7 +623,7 @@ Return ONLY valid JSON in this exact format (no other text):
 RULES:
 - For gender: 1=male, 0=female, null if unclear
 - For age: exact number, null if unclear  
-- For others: 1=yes, 0=no, null if unclear
+- For others: 1=yes, 0=no, yes=1, no=0 null if unclear
 - Confidence: 1-10 (10=very certain)
 - Return ONLY the JSON, no explanations"""
 

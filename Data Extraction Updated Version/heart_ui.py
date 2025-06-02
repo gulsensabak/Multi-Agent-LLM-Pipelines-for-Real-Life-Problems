@@ -400,8 +400,8 @@ class HeartDiseaseDataExtractionAgent:
         """
 
         # First try manual parsing
-        manual_extraction = self.parse_user_response_manually(user_response)
-
+        # manual_extraction = self.parse_user_response_manually(user_response)
+        manual_extraction = {}
         # Create the result structure with default values
         result = {
             "extracted_features": {feature: {"value": None, "confidence": 0} for feature in self.required_features},
